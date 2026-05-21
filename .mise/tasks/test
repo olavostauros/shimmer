@@ -20,6 +20,11 @@ resolved=()
 has_target=false
 
 for arg in ${args[@]+"${args[@]}"}; do
+  # Some mise versions pass the empty default for variadic args as a quoted
+  # empty string (''), which xargs parses into one empty argument. Do not treat
+  # that as the test directory target, or `mise run test` becomes a 0-test run.
+  [ -n "$arg" ] || continue
+
   if [[ "$arg" != -* && "$arg" != *.bats && -d "$TEST_DIR/$arg" ]]; then
     resolved+=("$TEST_DIR/$arg")
     has_target=true
