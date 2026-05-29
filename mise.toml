@@ -7,21 +7,21 @@ experimental = true
 shiv = "https://github.com/KnickKnackLabs/vfox-shiv"
 
 [tools]
-"shiv:codebase" = "0.2.0"                 # Codebase linting + migrations
+"shiv:codebase" = "0.2"                   # Codebase linting + migrations
 node = "22"                               # LTS
 "github:pimalaya/himalaya" = "1.2.0"      # Email CLI for agents
 "1password-cli" = "2.32.0"                # Credential management
-uv = "latest"                                # Python package installer (needed by pipx backend)
+uv = "latest"                             # Python package installer (needed by pipx backend)
 "pipx:check-jsonschema" = "0.36.0"        # JSON Schema validation
 jq = "1.8.1"                              # JSON processing
 yq = "4.50.1"                             # YAML processing
 fzf = "0.67.0"                            # Fuzzy finder for interactive pickers
-gum = "0.17.0"                             # Terminal UI components (tables, spinners, etc.)
-bats = "1.13.0"                            # Bash Automated Testing System
-"shiv:secrets" = "0.1.0"                    # Provider-based secret management (keychain, 1password)
-"shiv:emails" = "0.3.0"
-"shiv:sessions" = "0.4.1"                   # Agent session transcripts (used by agent task)
-"shiv:threads" = "0.2.1"                    # HUMAN.md thread management
+gum = "0.17.0"                            # Terminal UI components (tables, spinners, etc.)
+bats = "1.13.0"                           # Bash Automated Testing System
+"shiv:secrets" = "0.1"                    # Provider-based secret management (keychain, 1password)
+"shiv:emails" = "0.3"
+"shiv:sessions" = "0.4"                   # Agent session transcripts (used by agent task)
+"shiv:threads" = "0.2"                    # HUMAN.md thread management
 
 [_.codebase]
 lint = ["mise-settings", "gum-table", "bats-test-helper", "bats-test-task", "mcr-scope", "or-true", "shellcheck"]
