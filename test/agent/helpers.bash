@@ -34,6 +34,13 @@ echo "$@" >> "$SESSIONS_LOG"
   printf 'CALLER_PWD=%s\n' "${CALLER_PWD-}"
   printf 'SHIMMER_CALLER_PWD=%s\n' "${SHIMMER_CALLER_PWD-}"
   printf 'OTHER_CALLER_PWD=%s\n' "${OTHER_CALLER_PWD-}"
+  printf 'MISE_CONFIG_ROOT=%s\n' "${MISE_CONFIG_ROOT-}" # codebase:ignore mcr-scope — test records scrubbed env
+  printf 'MISE_PROJECT_ROOT=%s\n' "${MISE_PROJECT_ROOT-}"
+  printf 'MISE_TASK_NAME=%s\n' "${MISE_TASK_NAME-}"
+  printf 'GIT_AUTHOR_NAME=%s\n' "${GIT_AUTHOR_NAME-}"
+  printf 'GIT_AUTHOR_EMAIL=%s\n' "${GIT_AUTHOR_EMAIL-}"
+  printf 'AGENT_IDENTITY=%s\n' "${AGENT_IDENTITY-}"
+  printf 'PATH=%s\n' "${PATH-}"
 } >> "${SESSIONS_ENV_LOG:-$SESSIONS_LOG.env}"
 case "$1" in
   new) echo "mock-session-id-001" ;;
@@ -140,6 +147,13 @@ echo "$@" >> "$HARNESS_LOG"
   printf 'CALLER_PWD=%s\n' "${CALLER_PWD-}"
   printf 'SHIMMER_CALLER_PWD=%s\n' "${SHIMMER_CALLER_PWD-}"
   printf 'OTHER_CALLER_PWD=%s\n' "${OTHER_CALLER_PWD-}"
+  printf 'MISE_CONFIG_ROOT=%s\n' "${MISE_CONFIG_ROOT-}" # codebase:ignore mcr-scope — test records scrubbed env
+  printf 'MISE_PROJECT_ROOT=%s\n' "${MISE_PROJECT_ROOT-}"
+  printf 'MISE_TASK_NAME=%s\n' "${MISE_TASK_NAME-}"
+  printf 'GIT_AUTHOR_NAME=%s\n' "${GIT_AUTHOR_NAME-}"
+  printf 'GIT_AUTHOR_EMAIL=%s\n' "${GIT_AUTHOR_EMAIL-}"
+  printf 'AGENT_IDENTITY=%s\n' "${AGENT_IDENTITY-}"
+  printf 'PATH=%s\n' "${PATH-}"
 } >> "${HARNESS_ENV_LOG:-$HARNESS_LOG.env}"
 MOCK
   chmod +x "$MOCK_BIN/mock-harness"

@@ -50,6 +50,7 @@ mock_shimmer() {
   local mock_dir="$BATS_TEST_TMPDIR/mocks-$$"
   OVERLAY="$BATS_TEST_TMPDIR/overlay-$$"
   mkdir -p "$OVERLAY"
+  ln -s "$SHIMMER_DIR/lib" "$OVERLAY/lib"
 
   # Build includes list: home tasks first (if any), then mocks (if any), then shimmer
   local includes=""
