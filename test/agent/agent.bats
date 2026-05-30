@@ -58,12 +58,16 @@ setup() {
   echo "$pi_install" | grep -qF 'github:badlogic/pi-mono@0.73.0'
 }
 
-@test "workflow: generated callers forward Hugging Face token" {
+@test "workflow: generated callers forward Hugging Face and B2 tokens" {
   scheduled_template="$SHIMMER_DIR/.github/templates/agent-scheduled.yml"
   generator="$SHIMMER_DIR/.mise/tasks/workflows/generate"
 
   grep -qF 'HF_TOKEN: ${{ secrets.HF_TOKEN }}' "$scheduled_template"
   grep -qF 'HF_TOKEN: \${{ secrets.HF_TOKEN }}' "$generator"
+  grep -qF 'AGENT_B2_ENDPOINT: ${{ secrets.${AGENT_UPPER}_B2_ENDPOINT }}' "$scheduled_template"
+  grep -qF 'AGENT_B2_ENDPOINT: \${{ secrets.${AGENT_UPPER}_B2_ENDPOINT }}' "$generator"
+  grep -qF 'AGENT_B2_APPLICATION_KEY: ${{ secrets.${AGENT_UPPER}_B2_APPLICATION_KEY }}' "$scheduled_template"
+  grep -qF 'AGENT_B2_APPLICATION_KEY: \${{ secrets.${AGENT_UPPER}_B2_APPLICATION_KEY }}' "$generator"
 }
 
 @test "workflow: generated agent CI skips Matrix setup" {
@@ -77,6 +81,77 @@ setup() {
   ! grep -qF 'matrix:login ${{ inputs.agent }}' "$template"
   ! grep -qF 'AGENT_MATRIX_PASSWORD' "$scheduled_template"
   ! grep -qF 'AGENT_MATRIX_PASSWORD' "$generator"
+}
+
+@test "workflow: backs up sessions after agent run" {
+  template="$SHIMMER_DIR/.github/templates/agent-run.yml"
+
+  backup_if=$(yq -r '.jobs.run.steps[] | select(.name == "Back up sessions") | .if // ""' "$template")
+  backup_agent=$(yq -r '.jobs.run.steps[] | select(.name == "Back up sessions") | .env.AGENT // ""' "$template")
+  backup_run=$(yq -r '.jobs.run.steps[] | select(.name == "Back up sessions") | .run // ""' "$template")
+
+  [ "$backup_if" = "always()" ]
+  [ "$backup_agent" = '${{ inputs.agent }}' ]
+  echo "$backup_run" | grep -qF 'command -v shimmer'
+  echo "$backup_run" | grep -qF 'shimmer not available; skipping session backup'
+  echo "$backup_run" | grep -qF 'shimmer sessions:backup --all'
+  ! echo "$backup_run" | grep -qF 'shimmer blob:setup'
+}
+
+# --- Session backup ---
+
+@test "sessions:backup --all exports all listed sessions in dry-run mode" {
+  mock_sessions_backup_tools '[{"session_id":"session-001"},{"session_id":"session-002"}]'
+  mock_shimmer
+
+  run shimmer sessions:backup --all --dry-run
+  [ "$status" -eq 0 ]
+
+  grep -q '^list --all --json --limit 10000$' "$SESSIONS_LOG"
+  grep -q '^export --output .* --format bundle session-001$' "$SESSIONS_LOG"
+  grep -q '^export --output .* --format bundle session-002$' "$SESSIONS_LOG"
+  [[ "$output" == *"snapshot_key=sessions/session-001/snapshots/"* ]]
+  [[ "$output" == *"snapshot_key=sessions/session-002/snapshots/"* ]]
+  [ ! -f "$BLOBS_LOG" ]
+}
+
+@test "sessions:backup uploads explicit sessions with agent credentials" {
+  mock_sessions_backup_tools '[]'
+  export AGENT="test-agent"
+  mock_shimmer
+
+  run shimmer sessions:backup session-001 session-002
+  [ "$status" -eq 0 ]
+
+  ! grep -q '^list ' "$SESSIONS_LOG"
+  grep -q '^export --output .* --format bundle session-001$' "$SESSIONS_LOG"
+  grep -q '^export --output .* --format bundle session-002$' "$SESSIONS_LOG"
+  grep -q '^setup$' "$BLOBS_LOG"
+  grep -q '^put sessions/session-001/snapshots/.*\.tar\.gz .*$' "$BLOBS_LOG"
+  grep -q '^put sessions/session-001/latest\.tar\.gz .*$' "$BLOBS_LOG"
+  grep -q '^put sessions/session-002/snapshots/.*\.tar\.gz .*$' "$BLOBS_LOG"
+  grep -q '^put sessions/session-002/latest\.tar\.gz .*$' "$BLOBS_LOG"
+}
+
+@test "sessions:backup skips upload when credentials are absent" {
+  mock_sessions_backup_tools '[{"session_id":"session-001"}]'
+  export AGENT="missing-agent"
+  mock_shimmer
+
+  run shimmer sessions:backup --all
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"B2 credentials not configured; skipping session backup"* ]]
+  grep -q '^list --all --json --limit 10000$' "$SESSIONS_LOG"
+  [ ! -f "$BLOBS_LOG" ]
+}
+
+@test "sessions:backup requires explicit sessions or --all" {
+  mock_sessions_backup_tools '[]'
+  mock_shimmer
+
+  run shimmer sessions:backup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"provide session IDs or pass --all"* ]]
 }
 
 # --- Identity checks ---

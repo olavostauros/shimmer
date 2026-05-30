@@ -89,7 +89,7 @@ Generated workflows call the reusable `agent-run.yml` workflow, which:
 
 1. Checks out the repo.
 2. Installs mise-managed tools.
-3. Sets up agent credentials (GPG, email, GitHub, optional blob storage).
+3. Sets up agent credentials (GPG, email, GitHub).
 4. Clones the agent home repo.
 5. Prepares the home repo via the `agent:prepare` hook (see below).
 6. Exposes provider API keys from workflow secrets (`ANTHROPIC_API_KEY`, `HF_TOKEN`) and restores pi auth when `PI_AUTH_JSON` is configured.
@@ -98,6 +98,8 @@ Generated workflows call the reusable `agent-run.yml` workflow, which:
    ```bash
    shimmer agent --headless --timeout "$RUN_TIMEOUT" --model "$INPUT_MODEL" "$INPUT_MESSAGE"
    ```
+
+8. On completion or failure, backs up local session artifacts to blob storage when B2 credentials are configured.
 
 Headless execution requires an explicit provider-qualified model. For Hugging Face routed models, use the `huggingface/...` prefix (for example `huggingface/moonshotai/Kimi-K2.6:novita`) so pi selects the Hugging Face provider and reads `HF_TOKEN`, even if other provider secrets are also present. Shimmer creates a tracked session with `sessions new` and passes the model only to `sessions wake`, matching the `sessions` v0.4 contract.
 
@@ -118,6 +120,29 @@ If the home declares an `agent:prepare` mise task, it runs. Otherwise the step e
 **What `agent:prepare` should do:** anything home-specific that needs to happen before every headless session — typically `notes unlock`, `notes install-hooks`, `modules install-hooks`, `modules init`, `rudi install`, plus anything else that home owns. It must be idempotent and safe to run on every dispatch (CI re-runs it from scratch each time; locally agents may also invoke it during interactive sessions).
 
 **Why it's a delegation hook, not a hardcoded block:** the workflow template used to assume every home spoke den/fold's tooling stack (notes/rudi/modules). Agent homes vary — some may use only a subset, some may need additional setup (cache warming, secret pre-fetch). The hook hands ownership of that decision to each home repo's `mise.toml`.
+
+### Session backup
+
+The `Back up sessions` workflow step runs with `if: always()` after the agent step:
+
+```bash
+shimmer sessions:backup --all
+```
+
+`sessions:backup` lists local sessions with `sessions list --all --json`, exports each bundle through `sessions export --format bundle`, packages it as `.tar.gz`, and uploads both snapshot and latest keys through the standalone `blobs` tool:
+
+```text
+sessions/<session-id>/snapshots/<timestamp>.tar.gz
+sessions/<session-id>/latest.tar.gz
+```
+
+The task resolves the active agent from `$AGENT` (set by the workflow), then reads B2 credentials through the `secrets` provider (`<agent>/b2-endpoint`, `<agent>/b2-key-id`, `<agent>/b2-application-key`, `<agent>/b2-bucket`). If credentials are absent, it skips cleanly so repos can use the shared runner before every agent has blob storage configured.
+
+For local validation:
+
+```bash
+shimmer sessions:backup --dry-run <session-id>...
+```
 
 ## Adding a Scheduled Job
 

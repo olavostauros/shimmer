@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+#MISE description="Back up sessions transcript bundles to blob storage"
+#USAGE flag "--all" default=#false help="Back up every local session visible to the sessions CLI"
+#USAGE flag "--dry-run" default=#false help="Export/package sessions and print upload keys without uploading"
+#USAGE flag "--prefix <prefix>" default="sessions" help="Blob key prefix"
+#USAGE flag "--limit <n>" default="10000" help="Max sessions to inspect with --all"
+#USAGE flag "--agent <agent>" default="" help="Agent name for secret lookup (defaults to AGENT or GIT_AUTHOR_NAME)"
+#USAGE arg "[session_ids]" var=#true default="" help="Session IDs or prefixes accepted by sessions export"
+#USAGE example "shimmer sessions:backup --all" header="Back up every local session (CI runner)"
+#USAGE example "shimmer sessions:backup --dry-run 019e75db" header="Preview archive and blob keys for one session"
+#USAGE example "AGENT=c0da shimmer sessions:backup --all" header="Use a specific agent's B2 credentials"
+set -euo pipefail
+
+printf_status() { printf '[sessions:backup] %s\n' "$*" >&2; }
+printf_error() { printf '[sessions:backup] ERROR: %s\n' "$*" >&2; }
+
+ALL="${usage_all:-false}"
+DRY_RUN="${usage_dry_run:-false}"
+PREFIX="${usage_prefix:-sessions}"
+LIMIT="${usage_limit:-10000}"
+AGENT_NAME="${usage_agent:-${AGENT:-${GIT_AUTHOR_NAME:-}}}"
+SESSION_IDS_RAW="${usage_session_ids:-}"
+
+SESSION_IDS=()
+TMP_DIR=""
+
+cleanup() {
+  [ -z "$TMP_DIR" ] || rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+require_command() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    printf_error "$cmd not found on PATH"
+    exit 1
+  fi
+}
+
+parse_session_args() {
+  if [ -n "$SESSION_IDS_RAW" ]; then
+    while IFS= read -r session_id; do
+      [ -n "$session_id" ] || continue
+      SESSION_IDS+=("$session_id")
+    done < <(printf '%s' "$SESSION_IDS_RAW" | xargs printf '%s\n')
+  fi
+}
+
+collect_all_sessions() {
+  local sessions_json sessions_err
+  sessions_err=$(mktemp)
+
+  if ! sessions_json=$(sessions list --all --json --limit "$LIMIT" 2>"$sessions_err"); then
+    printf_status "could not list sessions; skipping"
+    sed 's/^/[sessions:backup] sessions: /' "$sessions_err" >&2
+    rm -f "$sessions_err"
+    exit 0
+  fi
+  rm -f "$sessions_err"
+
+  if ! printf '%s' "$sessions_json" | jq -r '.[].session_id // empty' > "$TMP_DIR/session-ids"; then
+    printf_error "could not parse sessions list JSON"
+    exit 1
+  fi
+
+  while IFS= read -r session_id; do
+    [ -n "$session_id" ] || continue
+    SESSION_IDS+=("$session_id")
+  done < "$TMP_DIR/session-ids"
+}
+
+get_secret_default() {
+  local var_name="$1"
+  local secret_key="$2"
+  local current_value="${!var_name:-}"
+
+  if [ -n "$current_value" ]; then
+    return 0
+  fi
+
+  if ! command -v secrets >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local value
+  if ! value=$(secrets get "$secret_key" 2>/dev/null); then
+    return 1
+  fi
+
+  export "$var_name=$value"
+}
+
+ensure_blob_env() {
+  if [ -z "$AGENT_NAME" ]; then
+    printf_status "agent not set; skipping session backup"
+    return 1
+  fi
+
+  export B2_ALIAS="${B2_ALIAS:-$AGENT_NAME}"
+  get_secret_default B2_ENDPOINT "$AGENT_NAME/b2-endpoint" || return 1
+  get_secret_default B2_KEY_ID "$AGENT_NAME/b2-key-id" || return 1
+  get_secret_default B2_APPLICATION_KEY "$AGENT_NAME/b2-application-key" || return 1
+  get_secret_default B2_BUCKET "$AGENT_NAME/b2-bucket" || return 1
+}
+
+trust_blobs_package_config() {
+  local root config
+  root=$(mise where shiv:blobs 2>/dev/null) || return 0
+  config="$root/packages/blobs/mise.toml"
+  [ -f "$config" ] || return 0
+  mise trust "$config" >/dev/null
+}
+
+backup_one_session() {
+  local session_id="$1"
+  local safe_id export_dir archive_dir bundle_count bundle_dir full_id timestamp archive snapshot_key latest_key
+
+  safe_id=$(printf '%s' "$session_id" | tr -c '[:alnum:]_.-' '_')
+  export_dir="$TMP_DIR/export-$safe_id"
+  archive_dir="$TMP_DIR/archive-$safe_id"
+  mkdir -p "$export_dir" "$archive_dir"
+
+  printf_status "exporting session $session_id"
+  sessions export --output "$export_dir" --format bundle "$session_id" >&2
+
+  bundle_count=$(find "$export_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+  if [ "$bundle_count" != "1" ]; then
+    printf_error "expected exactly one exported bundle for $session_id, found $bundle_count"
+    exit 1
+  fi
+
+  bundle_dir=$(find "$export_dir" -mindepth 1 -maxdepth 1 -type d | head -1)
+  full_id=$(basename "$bundle_dir")
+  timestamp=$(date -u '+%Y-%m-%dT%H-%M-%SZ')
+  archive="$archive_dir/$full_id-$timestamp.tar.gz"
+
+  printf_status "packaging $full_id"
+  tar -C "$export_dir" -czf "$archive" "$full_id"
+
+  snapshot_key="$PREFIX/$full_id/snapshots/$timestamp.tar.gz"
+  latest_key="$PREFIX/$full_id/latest.tar.gz"
+
+  printf 'session_id=%s\n' "$full_id"
+  printf 'archive=%s\n' "$archive"
+  printf 'snapshot_key=%s\n' "$snapshot_key"
+  printf 'latest_key=%s\n' "$latest_key"
+
+  if [ "$DRY_RUN" = "true" ]; then
+    return 0
+  fi
+
+  printf_status "uploading snapshot for $full_id"
+  blobs put "$snapshot_key" "$archive"
+
+  printf_status "uploading latest pointer for $full_id"
+  blobs put "$latest_key" "$archive"
+}
+
+require_command jq
+require_command sessions
+
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/shimmer-sessions-backup.XXXXXX")
+
+parse_session_args
+if [ "$ALL" = "true" ]; then
+  collect_all_sessions
+elif [ ${#SESSION_IDS[@]} -eq 0 ]; then
+  printf_error "provide session IDs or pass --all"
+  exit 1
+fi
+
+if [ ${#SESSION_IDS[@]} -eq 0 ]; then
+  printf_status "no sessions found; skipping"
+  exit 0
+fi
+
+if [ "$DRY_RUN" != "true" ]; then
+  if ! ensure_blob_env; then
+    printf_status "B2 credentials not configured; skipping session backup"
+    exit 0
+  fi
+
+  trust_blobs_package_config
+  require_command blobs
+
+  printf_status "ensuring blob alias $B2_ALIAS"
+  blobs setup >&2
+else
+  printf_status "dry run; not uploading"
+fi
+
+for session_id in "${SESSION_IDS[@]}"; do
+  backup_one_session "$session_id"
+done
+
+printf_status "done (${#SESSION_IDS[@]} session(s))"
