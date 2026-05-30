@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #MISE description="Start an agent session (interactive or headless)"
 #MISE quiet=true
-#USAGE flag "--headless" help="Non-interactive mode: process message and exit"
-#USAGE flag "--session <session>" help="Session file path to resume"
-#USAGE flag "--timeout <seconds>" help="Timeout in seconds (headless only, stored as session metadata — not yet enforced by sessions wake)"
-#USAGE flag "--model <model>" help="Model to use (required for --headless; provider-qualified, e.g. openai-codex/gpt-5.5)"
-#USAGE arg "[message]" help="Initial message (required for --headless, optional for interactive)"
+#USAGE flag "--headless" default=#false help="Non-interactive mode: process message and exit"
+#USAGE flag "--session <session>" default="" help="Session file path to resume"
+#USAGE flag "--timeout <seconds>" default="" help="Timeout in seconds (headless only, stored as session metadata — not yet enforced by sessions wake)"
+#USAGE flag "--model <model>" default="" help="Model to use (required for --headless; provider-qualified, e.g. openai-codex/gpt-5.5)"
+#USAGE arg "[message]" default="" help="Initial message (required for --headless, optional for interactive)"
 
 set -e
 
-HEADLESS="${usage_headless:-false}"
-SESSION="${usage_session:-}"
-TIMEOUT="${usage_timeout:-}"
-MODEL="${usage_model:-}"
-MESSAGE="${usage_message:-}"
+HEADLESS="$usage_headless"
+SESSION="$usage_session"
+TIMEOUT="$usage_timeout"
+MODEL="$usage_model"
+MESSAGE="$usage_message"
 
 # shellcheck source=../../../lib/agent-env.sh
 source "$MISE_CONFIG_ROOT/lib/agent-env.sh"

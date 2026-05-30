@@ -2,8 +2,8 @@
 #MISE description="Wake an agent by dispatching their workflow"
 #USAGE arg "<agent>" help="Agent to wake (e.g., zeke, baby-joel)"
 #USAGE arg "<message>" help="Message for the agent"
-#USAGE flag "--model <model>" help="Model to use (required; provider-qualified, e.g. openai-codex/gpt-5.5)"
-#USAGE flag "--repo <repo>" help="Target repository (owner/name) — skip agent discovery"
+#USAGE flag "--model <model>" default="" help="Model to use (required; provider-qualified, e.g. openai-codex/gpt-5.5)"
+#USAGE flag "--repo <repo>" default="" help="Target repository (owner/name) — skip agent discovery"
 
 set -e
 
