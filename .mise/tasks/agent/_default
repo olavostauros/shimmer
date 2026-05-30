@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
 #MISE description="Start an agent session (interactive or headless)"
 #MISE quiet=true
-#USAGE flag "--headless" help="Non-interactive mode: process message and exit"
-#USAGE flag "--session <session>" help="Session file path to resume"
-#USAGE flag "--timeout <seconds>" help="Timeout in seconds (headless only, stored as session metadata — not yet enforced by sessions wake)"
-#USAGE flag "--model <model>" help="Model to use (required for --headless; provider-qualified, e.g. openai-codex/gpt-5.5)"
-#USAGE arg "[message]" help="Initial message (required for --headless, optional for interactive)"
+#USAGE flag "--headless" default=#false help="Non-interactive mode: process message and exit"
+#USAGE flag "--session <session>" default="" help="Session file path to resume"
+#USAGE flag "--timeout <seconds>" default="" help="Timeout in seconds (headless only, stored as session metadata — not yet enforced by sessions wake)"
+#USAGE flag "--model <model>" default="" help="Model to use (required for --headless; provider-qualified, e.g. openai-codex/gpt-5.5)"
+#USAGE arg "[message]" default="" help="Initial message (required for --headless, optional for interactive)"
 
 set -e
 
-HEADLESS="${usage_headless:-false}"
-SESSION="${usage_session:-}"
-TIMEOUT="${usage_timeout:-}"
-MODEL="${usage_model:-}"
-MESSAGE="${usage_message:-}"
+HEADLESS="$usage_headless"
+SESSION="$usage_session"
+TIMEOUT="$usage_timeout"
+MODEL="$usage_model"
+MESSAGE="$usage_message"
 
-scrub_caller_pwd_env() {
-  local name
-  while IFS= read -r name; do
-    case "$name" in
-      CALLER_PWD|*_CALLER_PWD) unset "$name" ;;
-    esac
-  done < <(compgen -e)
-}
+# shellcheck source=../../../lib/agent-env.sh
+source "$MISE_CONFIG_ROOT/lib/agent-env.sh"
 
 # Derive agent name from environment (set by `shimmer as`)
 if [ -z "$GIT_AUTHOR_NAME" ]; then
@@ -65,10 +59,9 @@ if [ "$HEADLESS" = "true" ]; then
   CWD="${SHIMMER_CALLER_PWD:-${CALLER_PWD:-.}}"
   SESSION_NAME="${GIT_AUTHOR_NAME}-headless-$(date +%s)"
 
-  # Caller-context variables describe this immediate shim invocation. Do not
-  # leak them into long-lived session processes, where they can become stale
-  # ambient state and redirect later tooling to the wrong repository.
-  scrub_caller_pwd_env
+  # Prepare the long-lived agent runtime without discarding identity-bearing
+  # environment such as GIT_AUTHOR_NAME or AGENT_IDENTITY.
+  shimmer_prepare_agent_child_env
 
   # Create a tracked session (or resume an existing one)
   if [ -n "$SESSION" ]; then
@@ -87,7 +80,7 @@ else
   # Interactive mode calls the agent harness directly.
   CWD="${SHIMMER_CALLER_PWD:-${CALLER_PWD:-.}}"
   cd "$CWD"
-  scrub_caller_pwd_env
+  shimmer_prepare_agent_child_env
   HARNESS="${AGENT_HARNESS:-pi}"
   if ! command -v "$HARNESS" &>/dev/null; then
     echo "$HARNESS not found on PATH." >&2

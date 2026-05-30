@@ -278,6 +278,33 @@ setup() {
   grep -q '^OTHER_CALLER_PWD=$' "$SESSIONS_ENV_LOG"
 }
 
+@test "headless: removes stale mise task env and duplicate install PATH before invoking sessions" {
+  setup_agent
+  local installs="$HOME/.local/share/mise/installs"
+  local old_tool="$installs/shiv-stale-tool/0.1/bin"
+  local new_tool="$installs/shiv-stale-tool/0.2/bin"
+  export PATH="$old_tool:/before:$new_tool:$PATH"
+  export MISE_PROJECT_ROOT="/stale/project"
+  export MISE_ORIGINAL_CWD="/stale/original"
+  mock_sessions_binary
+  mock_shimmer
+
+  run shimmer agent --headless --model "openai-codex/gpt-5.5" "review the PR"
+  [ "$status" -eq 0 ]
+
+  grep -q '^MISE_CONFIG_ROOT=$' "$SESSIONS_ENV_LOG"
+  grep -q '^MISE_PROJECT_ROOT=$' "$SESSIONS_ENV_LOG"
+  grep -q '^MISE_TASK_NAME=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_headless=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_model=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_message=$' "$SESSIONS_ENV_LOG"
+  grep -q '^GIT_AUTHOR_NAME=test-agent$' "$SESSIONS_ENV_LOG"
+  grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$SESSIONS_ENV_LOG"
+  grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$SESSIONS_ENV_LOG"
+  grep -q "^PATH=.*$new_tool" "$SESSIONS_ENV_LOG"
+  ! grep -q "^PATH=.*$old_tool" "$SESSIONS_ENV_LOG"
+}
+
 @test "headless: session name uses full epoch timestamp" {
   setup_agent
   mock_sessions_binary
@@ -346,6 +373,21 @@ setup() {
   grep -q -- "--append-system-prompt" "$HARNESS_LOG"
 }
 
+@test "interactive: ignores inherited usage env from parent task" {
+  setup_agent
+  export usage_headless="true"
+  export usage_model="openai-codex/gpt-5.5"
+  export usage_message="stale parent message"
+  mock_harness
+  mock_shimmer
+
+  run shimmer agent
+  [ "$status" -eq 0 ]
+
+  grep -q -- "--append-system-prompt" "$HARNESS_LOG"
+  ! grep -q "stale parent message" "$HARNESS_LOG"
+}
+
 @test "interactive: uses SHIMMER_CALLER_PWD as harness cwd before scrubbing" {
   setup_agent
   local caller_dir="$BATS_TEST_TMPDIR/shimmer-caller"
@@ -378,6 +420,36 @@ setup() {
   grep -q '^OTHER_CALLER_PWD=$' "$HARNESS_ENV_LOG"
 }
 
+@test "interactive: removes stale mise task env and duplicate install PATH before invoking harness" {
+  setup_agent
+  local caller_dir="$BATS_TEST_TMPDIR/scrub-caller"
+  mkdir -p "$caller_dir"
+  export SHIMMER_CALLER_PWD="$caller_dir"
+  local installs="$HOME/.local/share/mise/installs"
+  local old_tool="$installs/shiv-stale-tool/0.1/bin"
+  local new_tool="$installs/shiv-stale-tool/0.2/bin"
+  export PATH="$old_tool:/before:$new_tool:$PATH"
+  export MISE_PROJECT_ROOT="/stale/project"
+  export MISE_ORIGINAL_CWD="/stale/original"
+  mock_harness
+  mock_shimmer
+
+  run shimmer agent
+  [ "$status" -eq 0 ]
+
+  grep -q '^MISE_CONFIG_ROOT=$' "$HARNESS_ENV_LOG"
+  grep -q '^MISE_PROJECT_ROOT=$' "$HARNESS_ENV_LOG"
+  grep -q '^MISE_TASK_NAME=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_headless=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_model=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_message=$' "$HARNESS_ENV_LOG"
+  grep -q '^GIT_AUTHOR_NAME=test-agent$' "$HARNESS_ENV_LOG"
+  grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$HARNESS_ENV_LOG"
+  grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$HARNESS_ENV_LOG"
+  grep -q "^PATH=.*$new_tool" "$HARNESS_ENV_LOG"
+  ! grep -q "^PATH=.*$old_tool" "$HARNESS_ENV_LOG"
+}
+
 @test "interactive: forwards session flag to harness" {
   setup_agent
   mock_harness
@@ -407,6 +479,18 @@ setup() {
   run shimmer agent:dispatch --repo test/repo c0da "hello"
   [ "$status" -ne 0 ]
   [[ "$output" == *"--model"* ]]
+}
+
+@test "agent:dispatch ignores inherited model and repo env" {
+  export usage_model="openai-codex/gpt-5.5"
+  export usage_repo="stale/repo"
+  mock_gh 12345
+  mock_shimmer
+
+  run shimmer agent:dispatch c0da "hello"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--model"* ]]
+  [ ! -f "$GH_LOG" ]
 }
 
 @test "agent:dispatch requires provider-qualified model" {
