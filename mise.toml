@@ -21,6 +21,7 @@ bats = "1.13.0"                           # Bash Automated Testing System
 "shiv:secrets" = "0.1"                    # Provider-based secret management (keychain, 1password)
 "shiv:emails" = "0.3"
 "shiv:sessions" = "0.4"                   # Agent session transcripts (used by agent task)
+"shiv:blobs" = "0.1"                      # Blob storage for CI session backup
 "shiv:threads" = "0.2"                    # HUMAN.md thread management
 
 [_.codebase]
