@@ -295,6 +295,9 @@ setup() {
   grep -q '^MISE_CONFIG_ROOT=$' "$SESSIONS_ENV_LOG"
   grep -q '^MISE_PROJECT_ROOT=$' "$SESSIONS_ENV_LOG"
   grep -q '^MISE_TASK_NAME=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_headless=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_model=$' "$SESSIONS_ENV_LOG"
+  grep -q '^usage_message=$' "$SESSIONS_ENV_LOG"
   grep -q '^GIT_AUTHOR_NAME=test-agent$' "$SESSIONS_ENV_LOG"
   grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$SESSIONS_ENV_LOG"
   grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$SESSIONS_ENV_LOG"
@@ -370,6 +373,21 @@ setup() {
   grep -q -- "--append-system-prompt" "$HARNESS_LOG"
 }
 
+@test "interactive: ignores inherited usage env from parent task" {
+  setup_agent
+  export usage_headless="true"
+  export usage_model="openai-codex/gpt-5.5"
+  export usage_message="stale parent message"
+  mock_harness
+  mock_shimmer
+
+  run shimmer agent
+  [ "$status" -eq 0 ]
+
+  grep -q -- "--append-system-prompt" "$HARNESS_LOG"
+  ! grep -q "stale parent message" "$HARNESS_LOG"
+}
+
 @test "interactive: uses SHIMMER_CALLER_PWD as harness cwd before scrubbing" {
   setup_agent
   local caller_dir="$BATS_TEST_TMPDIR/shimmer-caller"
@@ -422,6 +440,9 @@ setup() {
   grep -q '^MISE_CONFIG_ROOT=$' "$HARNESS_ENV_LOG"
   grep -q '^MISE_PROJECT_ROOT=$' "$HARNESS_ENV_LOG"
   grep -q '^MISE_TASK_NAME=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_headless=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_model=$' "$HARNESS_ENV_LOG"
+  grep -q '^usage_message=$' "$HARNESS_ENV_LOG"
   grep -q '^GIT_AUTHOR_NAME=test-agent$' "$HARNESS_ENV_LOG"
   grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$HARNESS_ENV_LOG"
   grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$HARNESS_ENV_LOG"
@@ -458,6 +479,18 @@ setup() {
   run shimmer agent:dispatch --repo test/repo c0da "hello"
   [ "$status" -ne 0 ]
   [[ "$output" == *"--model"* ]]
+}
+
+@test "agent:dispatch ignores inherited model and repo env" {
+  export usage_model="openai-codex/gpt-5.5"
+  export usage_repo="stale/repo"
+  mock_gh 12345
+  mock_shimmer
+
+  run shimmer agent:dispatch c0da "hello"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--model"* ]]
+  [ ! -f "$GH_LOG" ]
 }
 
 @test "agent:dispatch requires provider-qualified model" {

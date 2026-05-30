@@ -31,7 +31,7 @@ shimmer_scrub_mise_task_env() {
       # These describe the mise task currently launching the agent. Leaving them
       # set makes later direct tool/test invocations believe they still run from
       # shimmer's task root.
-      MISE_CONFIG_ROOT|MISE_ORIGINAL_CWD|MISE_PROJECT_ROOT|MISE_TASK_*) unset "$name" ;;
+      MISE_CONFIG_ROOT|MISE_ORIGINAL_CWD|MISE_PROJECT_ROOT|MISE_TASK_*|usage_*) unset "$name" ;;
     esac
   done < <(compgen -e)
 }

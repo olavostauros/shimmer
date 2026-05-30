@@ -20,6 +20,8 @@ setup() {
   export MISE_PROJECT_ROOT="/stale/project"
   export MISE_TASK_NAME="agent"
   export MISE_TASK_FILE="/stale/task"
+  export usage_headless="true"
+  export usage_model="openai-codex/gpt-5.5"
 
   shimmer_prepare_agent_child_env
 
@@ -35,6 +37,8 @@ setup() {
   [ -z "${MISE_PROJECT_ROOT-}" ]
   [ -z "${MISE_TASK_NAME-}" ]
   [ -z "${MISE_TASK_FILE-}" ]
+  [ -z "${usage_headless-}" ]
+  [ -z "${usage_model-}" ]
 }
 
 @test "agent env: prunes stale duplicate mise install dirs by tool key" {
