@@ -36,63 +36,47 @@ shimmer_scrub_mise_task_env() {
   done < <(compgen -e)
 }
 
-shimmer_mise_install_tool() {
+shimmer_path_contains() {
+  local needle="$1"
+  local path_rest entry
+  path_rest="${PATH:-}:"
+
+  while [ -n "$path_rest" ]; do
+    entry="${path_rest%%:*}"
+    path_rest="${path_rest#*:}"
+    [ "$entry" = "$needle" ] && return 0
+  done
+
+  return 1
+}
+
+shimmer_append_path_if_missing() {
   local entry="$1"
-  local installs="$2"
-  local rest
+  [ -n "$entry" ] || return 0
+  shimmer_path_contains "$entry" && return 0
 
-  case "$entry" in
-    "$installs"/*/*)
-      rest="${entry#"$installs"/}"
-      printf '%s\n' "${rest%%/*}"
-      ;;
-  esac
+  if [ -n "${PATH:-}" ]; then
+    export PATH="$PATH:$entry"
+  else
+    export PATH="$entry"
+  fi
 }
 
-shimmer_mise_install_version() {
-  local entry="$1"
-  local installs="$2"
-  local rest tool version
-
-  case "$entry" in
-    "$installs"/*/*)
-      rest="${entry#"$installs"/}"
-      tool="${rest%%/*}"
-      rest="${rest#"$tool"/}"
-      version="${rest%%/*}"
-      printf '%s\n' "$version"
-      ;;
-  esac
-}
-
-shimmer_selected_mise_install_version() {
-  local tool="$1"
-  local installs="$2"
-  shift 2
-
-  local entry entry_tool version
-  while [ "$#" -gt 0 ]; do
-    entry="$1"
-    shift
-    if ! entry_tool="$(shimmer_mise_install_tool "$entry" "$installs")"; then
-      entry_tool=""
-    fi
-    [ "$entry_tool" = "$tool" ] || continue
-    if ! version="$(shimmer_mise_install_version "$entry" "$installs")"; then
-      version=""
-    fi
-    printf '%s\n' "$version"
-  done | tail -1
-}
-
-# Collapse stale mise install PATH entries by tool name, keeping every entry for
-# the last-seen version of each tool. This preserves ordinary inherited PATH
-# entries and same-version multi-path tools (for example Elixir's bin plus
-# .mix/escripts), while letting a later home-specific mise env overlay beat stale
-# shimmer-launch tool dirs such as shiv-sessions/0.4.1 when shiv-sessions/0.4.3
-# is also present later in PATH.
-shimmer_prune_mise_install_path_duplicates() {
-  local data_dir installs path_rest entry
+# Cross the boundary from shimmer's mise task into a long-lived agent runtime.
+#
+# The launcher task may have direct mise install directories on PATH, such as
+# ~/.local/share/mise/installs/shiv-sessions/0.4.1/bin. Those directories are
+# activation artifacts for the launcher repo, not part of the agent runtime
+# contract. If they survive, they can shadow later repo-specific `mise exec`
+# tool selections for the entire interactive session.
+#
+# Do not reset wholesale to __MISE_ORIG_PATH here: callers/tests may have
+# intentionally prepended non-mise directories for harnesses, wrappers, or
+# mocks. Preserve ordinary PATH entries, remove direct mise install entries,
+# and make the stable command surfaces available through mise shims and
+# ~/.local/bin.
+shimmer_prepare_agent_runtime_path() {
+  local data_dir installs path_rest entry new_path
   if ! data_dir="$(shimmer_mise_data_dir)"; then
     data_dir=""
   fi
@@ -100,47 +84,30 @@ shimmer_prune_mise_install_path_duplicates() {
 
   installs="$data_dir/installs"
   path_rest="${PATH:-}:"
-  local entries=()
+  new_path=""
 
   while [ -n "$path_rest" ]; do
     entry="${path_rest%%:*}"
     path_rest="${path_rest#*:}"
-    entries+=("$entry")
-  done
 
-  local kept=() i tool version selected_version new_path
-  for ((i = 0; i < ${#entries[@]}; i++)); do
-    entry="${entries[$i]}"
-    if ! tool="$(shimmer_mise_install_tool "$entry" "$installs")"; then
-      tool=""
-    fi
+    case "$entry" in
+      "$installs"/*) continue ;;
+    esac
 
-    if [ -n "$tool" ]; then
-      if ! version="$(shimmer_mise_install_version "$entry" "$installs")"; then
-        version=""
-      fi
-      if ! selected_version="$(shimmer_selected_mise_install_version "$tool" "$installs" "${entries[@]}")"; then
-        selected_version=""
-      fi
-      [ "$version" != "$selected_version" ] && continue
-    fi
-
-    kept+=("$entry")
-  done
-
-  new_path=""
-  for entry in ${kept[@]+"${kept[@]}"}; do
     if [ -z "$new_path" ]; then
       new_path="$entry"
     else
       new_path="$new_path:$entry"
     fi
   done
+
   export PATH="$new_path"
+  shimmer_append_path_if_missing "$data_dir/shims"
+  [ -n "${HOME:-}" ] && shimmer_append_path_if_missing "$HOME/.local/bin"
 }
 
 shimmer_prepare_agent_child_env() {
   shimmer_scrub_caller_pwd_env
   shimmer_scrub_mise_task_env
-  shimmer_prune_mise_install_path_duplicates
+  shimmer_prepare_agent_runtime_path
 }
