@@ -230,6 +230,34 @@ setup() {
   [[ "$output" == *"sessions not found"* ]]
 }
 
+@test "headless: checks sessions availability after runtime PATH cleanup" {
+  setup_agent
+  local home="$BATS_TEST_TMPDIR/path-boundary-home"
+  local direct_sessions="$home/.local/share/mise/installs/shiv-sessions/0.4.1/bin"
+  mkdir -p "$direct_sessions"
+  cat > "$direct_sessions/sessions" <<'MOCK'
+#!/usr/bin/env bash
+echo "stale direct sessions should not run" >&2
+exit 99
+MOCK
+  chmod +x "$direct_sessions/sessions"
+
+  run env -i \
+    HOME="$home" \
+    PATH="$direct_sessions:/usr/bin:/bin" \
+    MISE_CONFIG_ROOT="$SHIMMER_DIR" \
+    GIT_AUTHOR_NAME="test-agent" \
+    GIT_AUTHOR_EMAIL="test-agent@ricon.family" \
+    AGENT_IDENTITY="You are test-agent." \
+    usage_headless="true" \
+    usage_model="openai-codex/gpt-5.5" \
+    usage_message="review the PR" \
+    bash "$SHIMMER_DIR/.mise/tasks/agent/_default"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sessions not found on PATH"* ]]
+  [[ "$output" != *"stale direct sessions should not run"* ]]
+}
+
 @test "headless: calls sessions new + wake" {
   setup_agent
   mock_sessions_binary
