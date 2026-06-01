@@ -51,17 +51,17 @@ if [ "$HEADLESS" = "true" ]; then
   # Headless mode creates a tracked session and launches it in the background
   # via sessions new + sessions wake. The agent runs inside zmx (backgrounded),
   # and can be monitored with `sessions read`.
-  if ! command -v sessions &>/dev/null; then
-    echo "sessions not found on PATH. Install it: shiv install sessions" >&2
-    exit 1
-  fi
-
   CWD="${SHIMMER_CALLER_PWD:-${CALLER_PWD:-.}}"
   SESSION_NAME="${GIT_AUTHOR_NAME}-headless-$(date +%s)"
 
   # Prepare the long-lived agent runtime without discarding identity-bearing
   # environment such as GIT_AUTHOR_NAME or AGENT_IDENTITY.
   shimmer_prepare_agent_child_env
+
+  if ! command -v sessions &>/dev/null; then
+    echo "sessions not found on PATH. Install it: shiv install sessions" >&2
+    exit 1
+  fi
 
   # Create a tracked session (or resume an existing one)
   if [ -n "$SESSION" ]; then
