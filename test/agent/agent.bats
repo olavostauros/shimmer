@@ -230,6 +230,34 @@ setup() {
   [[ "$output" == *"sessions not found"* ]]
 }
 
+@test "headless: checks sessions availability after runtime PATH cleanup" {
+  setup_agent
+  local home="$BATS_TEST_TMPDIR/path-boundary-home"
+  local direct_sessions="$home/.local/share/mise/installs/shiv-sessions/0.4.1/bin"
+  mkdir -p "$direct_sessions"
+  cat > "$direct_sessions/sessions" <<'MOCK'
+#!/usr/bin/env bash
+echo "stale direct sessions should not run" >&2
+exit 99
+MOCK
+  chmod +x "$direct_sessions/sessions"
+
+  run env -i \
+    HOME="$home" \
+    PATH="$direct_sessions:/usr/bin:/bin" \
+    MISE_CONFIG_ROOT="$SHIMMER_DIR" \
+    GIT_AUTHOR_NAME="test-agent" \
+    GIT_AUTHOR_EMAIL="test-agent@ricon.family" \
+    AGENT_IDENTITY="You are test-agent." \
+    usage_headless="true" \
+    usage_model="openai-codex/gpt-5.5" \
+    usage_message="review the PR" \
+    bash "$SHIMMER_DIR/.mise/tasks/agent/_default" # codebase:ignore bats-test-helper — intentional direct invocation to isolate post-cleanup PATH without mise-added shims
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"sessions not found on PATH"* ]]
+  [[ "$output" != *"stale direct sessions should not run"* ]]
+}
+
 @test "headless: calls sessions new + wake" {
   setup_agent
   mock_sessions_binary
@@ -278,12 +306,12 @@ setup() {
   grep -q '^OTHER_CALLER_PWD=$' "$SESSIONS_ENV_LOG"
 }
 
-@test "headless: removes stale mise task env and duplicate install PATH before invoking sessions" {
+@test "headless: removes mise task env and direct install PATH before invoking sessions" {
   setup_agent
   local installs="$HOME/.local/share/mise/installs"
-  local old_tool="$installs/shiv-stale-tool/0.1/bin"
-  local new_tool="$installs/shiv-stale-tool/0.2/bin"
-  export PATH="$old_tool:/before:$new_tool:$PATH"
+  local stale_sessions="$installs/shiv-sessions/0.4.1/bin"
+  local current_sessions="$installs/shiv-sessions/0.4.4/bin"
+  export PATH="$stale_sessions:/before:$current_sessions:$PATH"
   export MISE_PROJECT_ROOT="/stale/project"
   export MISE_ORIGINAL_CWD="/stale/original"
   mock_sessions_binary
@@ -301,8 +329,9 @@ setup() {
   grep -q '^GIT_AUTHOR_NAME=test-agent$' "$SESSIONS_ENV_LOG"
   grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$SESSIONS_ENV_LOG"
   grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$SESSIONS_ENV_LOG"
-  grep -q "^PATH=.*$new_tool" "$SESSIONS_ENV_LOG"
-  ! grep -q "^PATH=.*$old_tool" "$SESSIONS_ENV_LOG"
+  grep -q '^PATH=.*/before' "$SESSIONS_ENV_LOG"
+  ! grep -q "^PATH=.*$stale_sessions" "$SESSIONS_ENV_LOG"
+  ! grep -q "^PATH=.*$current_sessions" "$SESSIONS_ENV_LOG"
 }
 
 @test "headless: session name uses full epoch timestamp" {
@@ -420,15 +449,15 @@ setup() {
   grep -q '^OTHER_CALLER_PWD=$' "$HARNESS_ENV_LOG"
 }
 
-@test "interactive: removes stale mise task env and duplicate install PATH before invoking harness" {
+@test "interactive: removes mise task env and direct install PATH before invoking harness" {
   setup_agent
   local caller_dir="$BATS_TEST_TMPDIR/scrub-caller"
   mkdir -p "$caller_dir"
   export SHIMMER_CALLER_PWD="$caller_dir"
   local installs="$HOME/.local/share/mise/installs"
-  local old_tool="$installs/shiv-stale-tool/0.1/bin"
-  local new_tool="$installs/shiv-stale-tool/0.2/bin"
-  export PATH="$old_tool:/before:$new_tool:$PATH"
+  local stale_sessions="$installs/shiv-sessions/0.4.1/bin"
+  local current_sessions="$installs/shiv-sessions/0.4.4/bin"
+  export PATH="$stale_sessions:/before:$current_sessions:$PATH"
   export MISE_PROJECT_ROOT="/stale/project"
   export MISE_ORIGINAL_CWD="/stale/original"
   mock_harness
@@ -446,8 +475,9 @@ setup() {
   grep -q '^GIT_AUTHOR_NAME=test-agent$' "$HARNESS_ENV_LOG"
   grep -q '^GIT_AUTHOR_EMAIL=test-agent@ricon.family$' "$HARNESS_ENV_LOG"
   grep -q '^AGENT_IDENTITY=You are test-agent\.$' "$HARNESS_ENV_LOG"
-  grep -q "^PATH=.*$new_tool" "$HARNESS_ENV_LOG"
-  ! grep -q "^PATH=.*$old_tool" "$HARNESS_ENV_LOG"
+  grep -q '^PATH=.*/before' "$HARNESS_ENV_LOG"
+  ! grep -q "^PATH=.*$stale_sessions" "$HARNESS_ENV_LOG"
+  ! grep -q "^PATH=.*$current_sessions" "$HARNESS_ENV_LOG"
 }
 
 @test "interactive: forwards session flag to harness" {

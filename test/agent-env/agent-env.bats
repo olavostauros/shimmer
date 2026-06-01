@@ -41,53 +41,54 @@ setup() {
   [ -z "${usage_model-}" ]
 }
 
-@test "agent env: prunes stale duplicate mise install dirs by tool key" {
+@test "agent env: removes direct mise install dirs at runtime boundary" {
   export HOME="$BATS_TEST_TMPDIR/home"
-  local installs="$HOME/.local/share/mise/installs"
+  local data_dir="$HOME/.local/share/mise"
+  local installs="$data_dir/installs"
   local old_sessions="$installs/shiv-sessions/0.4.1/bin"
-  local new_sessions="$installs/shiv-sessions/0.4.3/bin"
-  local old_threads="$installs/shiv-threads/0.2.1/bin"
-  local new_threads="$installs/shiv-threads/0.3.0/bin"
+  local new_sessions="$installs/shiv-sessions/0.4.4/bin"
+  local threads="$installs/shiv-threads/0.3.0/bin"
+  local nested_bats="$installs/bats/1.13.0/bats-core-1.13.0/bin"
 
-  export PATH="/usr/bin:/bin:$old_sessions:/custom/bin:$new_sessions:$old_threads:$new_threads:/tail/bin"
+  export PATH="/mock/bin:$old_sessions:/custom/bin:$new_sessions:$threads:$nested_bats:/tail/bin:/usr/bin:/bin"
 
-  shimmer_prune_mise_install_path_duplicates
+  shimmer_prepare_agent_runtime_path
 
   [[ ":$PATH:" != *":$old_sessions:"* ]]
-  [[ ":$PATH:" != *":$old_threads:"* ]]
-  [[ ":$PATH:" == *":$new_sessions:"* ]]
-  [[ ":$PATH:" == *":$new_threads:"* ]]
+  [[ ":$PATH:" != *":$new_sessions:"* ]]
+  [[ ":$PATH:" != *":$threads:"* ]]
+  [[ ":$PATH:" != *":$nested_bats:"* ]]
+  [[ ":$PATH:" == *":/mock/bin:"* ]]
   [[ ":$PATH:" == *":/custom/bin:"* ]]
   [[ ":$PATH:" == *":/tail/bin:"* ]]
+  [[ ":$PATH:" == *":$data_dir/shims:"* ]]
+  [[ ":$PATH:" == *":$HOME/.local/bin:"* ]]
 }
 
-@test "agent env: keeps non-duplicate mise install dirs" {
+@test "agent env: removes single stale mise install dir without requiring duplicate" {
   export HOME="$BATS_TEST_TMPDIR/home"
   local installs="$HOME/.local/share/mise/installs"
-  local only_sessions="$installs/shiv-sessions/0.4.3/bin"
-  local only_notes="$installs/shiv-notes/0.8.8/bin"
+  local stale_sessions="$installs/shiv-sessions/0.4.1/bin"
 
-  export PATH="$only_sessions:/usr/bin:/bin:$only_notes"
+  export PATH="/mock/bin:$stale_sessions:/usr/bin:/bin"
 
-  shimmer_prune_mise_install_path_duplicates
+  shimmer_prepare_agent_runtime_path
 
-  [[ ":$PATH:" == *":$only_sessions:"* ]]
-  [[ ":$PATH:" == *":$only_notes:"* ]]
+  [[ ":$PATH:" != *":$stale_sessions:"* ]]
+  [[ ":$PATH:" == *":/mock/bin:"* ]]
   [[ ":$PATH:" == *":/usr/bin:"* ]]
+  [[ ":$PATH:" == *":/bin:"* ]]
 }
 
-@test "agent env: preserves multiple entries for the selected mise install version" {
+@test "agent env: preserves non-mise path order and does not duplicate stable entries" {
   export HOME="$BATS_TEST_TMPDIR/home"
-  local installs="$HOME/.local/share/mise/installs"
-  local old_elixir="$installs/elixir/1.18/bin"
-  local new_elixir_bin="$installs/elixir/1.19/bin"
-  local new_elixir_mix="$installs/elixir/1.19/.mix/escripts"
+  local data_dir="$HOME/.local/share/mise"
+  local shims="$data_dir/shims"
+  local local_bin="$HOME/.local/bin"
 
-  export PATH="$old_elixir:/usr/bin:/bin:$new_elixir_bin:$new_elixir_mix"
+  export PATH="/mock/bin:$shims:/custom/bin:$local_bin:/tail/bin:/usr/bin:/bin"
 
-  shimmer_prune_mise_install_path_duplicates
+  shimmer_prepare_agent_runtime_path
 
-  [[ ":$PATH:" != *":$old_elixir:"* ]]
-  [[ ":$PATH:" == *":$new_elixir_bin:"* ]]
-  [[ ":$PATH:" == *":$new_elixir_mix:"* ]]
+  [ "$PATH" = "/mock/bin:$shims:/custom/bin:$local_bin:/tail/bin:/usr/bin:/bin" ]
 }
