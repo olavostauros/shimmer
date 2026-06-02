@@ -429,6 +429,53 @@ EOF
   [[ "$output" == *"Unexpected: .github/scripts/agent-mention-detect.nu"* ]]
 }
 
+@test "workflows:generate removes stale generated workflow files" {
+  make_target_repo
+  generate_workflows
+
+  [ -f "$TARGET_REPO/.github/workflows/daily-probe.yml" ]
+  [ -f "$TARGET_REPO/.github/workflows/c0da.yml" ]
+
+  cat > "$TARGET_REPO/.github/workflows/manual.yml" <<'EOF'
+name: manual
+on: workflow_dispatch
+jobs: {}
+EOF
+
+  cat > "$TARGET_REPO/workflows.yaml" <<'EOF'
+workflows:
+  - name: renamed-probe
+    agent: quick
+    model: openai-codex/gpt-5.5
+    schedule:
+      - "0 16 * * *"
+    message: "Review the renamed probe."
+EOF
+
+  cat > "$TARGET_REPO/.mise/tasks/agent/list" <<'EOF'
+#!/usr/bin/env bash
+printf 'quick\n'
+EOF
+  chmod +x "$TARGET_REPO/.mise/tasks/agent/list"
+
+  run generate_workflows --check
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unexpected: .github/workflows/daily-probe.yml (stale generated workflow"* ]]
+  [[ "$output" == *"Unexpected: .github/workflows/c0da.yml (stale generated workflow"* ]]
+
+  run generate_workflows
+  [ "$status" -eq 0 ] || {
+    echo "$output" >&2
+    return 1
+  }
+
+  [ -f "$TARGET_REPO/.github/workflows/renamed-probe.yml" ]
+  [ -f "$TARGET_REPO/.github/workflows/quick.yml" ]
+  [ ! -f "$TARGET_REPO/.github/workflows/daily-probe.yml" ]
+  [ ! -f "$TARGET_REPO/.github/workflows/c0da.yml" ]
+  [ -f "$TARGET_REPO/.github/workflows/manual.yml" ]
+}
+
 @test "agent mention detector ignores non-waking text and maps handles" {
   local agent
   for agent in $ROSTER; do
