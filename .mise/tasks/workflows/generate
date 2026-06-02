@@ -35,6 +35,7 @@ SCRIPT_DIR="$OUTPUT_ROOT/scripts"
 mkdir -p "$OUTPUT_DIR"
 
 GENERATED_WORKFLOW_NAMES=$'agent-run\nagent-mention\n'
+EXPECTED_GENERATED_WORKFLOW_FILES=$'agent-run.yml\n'
 
 agent_secret_prefix() {
   printf '%s' "$1" | tr '[:lower:]-' '[:upper:]_'
@@ -89,6 +90,52 @@ reserve_workflow_name() {
   fi
 
   GENERATED_WORKFLOW_NAMES+="${name}"$'\n'
+}
+
+expect_generated_workflow_file() {
+  local filename="$1"
+  EXPECTED_GENERATED_WORKFLOW_FILES+="${filename}"$'\n'
+}
+
+generated_workflow_file_expected() {
+  local needle="$1"
+  local filename
+  while IFS= read -r filename; do
+    [[ -z "$filename" ]] && continue
+    [[ "$filename" == "$needle" ]] && return 0
+  done <<< "$EXPECTED_GENERATED_WORKFLOW_FILES"
+  return 1
+}
+
+is_generated_workflow_file() {
+  local file="$1"
+  grep -q '^# ⚠️  AUTO-GENERATED' "$file" 2>/dev/null
+}
+
+handle_stale_generated_workflows() {
+  local workflow_dir="$1"
+  local mode="$2"
+  local file filename
+
+  [[ -d "$workflow_dir" ]] || return 0
+
+  while IFS= read -r -d '' file; do
+    filename=$(basename "$file")
+    if generated_workflow_file_expected "$filename"; then
+      continue
+    fi
+    if ! is_generated_workflow_file "$file"; then
+      continue
+    fi
+
+    if [[ "$mode" == "check" ]]; then
+      echo "Unexpected: .github/workflows/$filename (stale generated workflow; regenerate with current workflows.yaml/agent:list)"
+      DIFF_FOUND=true
+    else
+      rm -f "$file"
+      echo "Removed stale generated workflow: $filename"
+    fi
+  done < <(find "$workflow_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
 }
 
 agent_in_roster() {
@@ -258,6 +305,7 @@ generate_scheduled_workflow() {
     schedule_entries+="    - cron: '${cron}'"$'\n'
   done
 
+  expect_generated_workflow_file "${name}.yml"
   output_file="$OUTPUT_DIR/${name}.yml"
   export AGENT="$agent"
 
@@ -301,6 +349,8 @@ generate_mention_workflow() {
   local allowed_associations="$4"
   local output_file="$OUTPUT_DIR/agent-mention.yml"
   local model_tmp model_yaml
+
+  expect_generated_workflow_file "agent-mention.yml"
 
   model_tmp=$(mktemp)
   printf '%s' "$model" > "$model_tmp"
@@ -429,6 +479,7 @@ if [[ -n "$AGENTS" ]]; then
     [[ -z "$agent" ]] && continue
     validate_agent_name "$agent"
     reserve_workflow_name "$agent" "agent:list entry '$agent'"
+    expect_generated_workflow_file "${agent}.yml"
     generate_agent_workflow "$agent"
     echo "Generated: ${agent}.yml"
     AGENT_COUNT=$((AGENT_COUNT + 1))
@@ -477,6 +528,10 @@ elif [[ "$CHECK_MODE" != "true" ]]; then
   rm -f "$OUTPUT_DIR/agent-mention.yml" "$SCRIPT_DIR/agent-mention-detect.py" "$SCRIPT_DIR/agent-mention-detect.nu"
 fi
 
+if [[ "$CHECK_MODE" != "true" ]]; then
+  handle_stale_generated_workflows "$OUTPUT_DIR" "apply"
+fi
+
 # In check mode, diff against committed files
 if [[ "$CHECK_MODE" == "true" ]]; then
   DIFF_FOUND=false
@@ -494,6 +549,8 @@ if [[ "$CHECK_MODE" == "true" ]]; then
       compare_generated_file "$OUTPUT_DIR/${NAME}.yml" ".github/workflows/${NAME}.yml"
     done
   fi
+
+  handle_stale_generated_workflows ".github/workflows" "check"
 
   if [[ "$MENTION_ENABLED" == "true" ]]; then
     compare_generated_file "$OUTPUT_DIR/agent-mention.yml" ".github/workflows/agent-mention.yml"
