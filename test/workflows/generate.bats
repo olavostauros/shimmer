@@ -7,7 +7,6 @@ setup() {
 }
 
 ROSTER="brownie c0da iris johnson junior k7r2 quick rho x1f9"
-NUSHELL_TOOL="aqua:nushell/nushell@0.113.1"
 
 make_target_repo() {
   TARGET_REPO="$BATS_TEST_TMPDIR/target-repo"
@@ -125,7 +124,7 @@ run_detector() {
     AGENT_HANDLE_SUFFIX="-ricon" \
     TEAM_ALIASES="" \
     ALLOWED_ASSOCIATIONS="OWNER,MEMBER" \
-    mise exec "$NUSHELL_TOOL" -- nu "$SHIMMER_DIR/.github/templates/agent-mention-detect.nu"
+    python3 "$SHIMMER_DIR/.github/templates/agent-mention-detect.py"
 }
 
 assert_detector_case() {
@@ -188,7 +187,7 @@ assert_detector_case() {
   c0da_workflow="$TARGET_REPO/.github/workflows/c0da.yml"
   scheduled_workflow="$TARGET_REPO/.github/workflows/daily-probe.yml"
   mention_workflow="$TARGET_REPO/.github/workflows/agent-mention.yml"
-  mention_script="$TARGET_REPO/.github/scripts/agent-mention-detect.nu"
+  mention_script="$TARGET_REPO/.github/scripts/agent-mention-detect.py"
 
   [ -f "$quick_workflow" ]
   [ -f "$c0da_workflow" ]
@@ -212,7 +211,7 @@ assert_detector_case() {
   ! grep -q 'AGENT_GITHUB_PAT' "$scheduled_workflow"
 
   [ "$(yq -r '.on.issue_comment.types[0]' "$mention_workflow")" = "created" ]
-  [ "$(yq -r '.jobs.detect.steps[] | select(.name == "Set up mise") | .uses' "$mention_workflow")" = "jdx/mise-action@v4" ]
+  ! grep -q 'jdx/mise-action' "$mention_workflow"
   [ "$(yq -r '.jobs.detect.outputs.agent_quick' "$mention_workflow")" = '${{ steps.detect.outputs.agent_quick }}' ]
   [ "$(yq -r '.jobs.detect.outputs.agent_c0da' "$mention_workflow")" = '${{ steps.detect.outputs.agent_c0da }}' ]
   [ "$(yq -r '.jobs."wake-quick".uses' "$mention_workflow")" = "./.github/workflows/quick.yml" ]
@@ -221,7 +220,7 @@ assert_detector_case() {
   [ "$(yq -r '.jobs."wake-quick".with.model' "$mention_workflow")" = "openai-codex/gpt-5.5" ]
   [ "$(yq -r '.jobs.detect.steps[] | select(.id == "detect") | .env.AGENT_ROSTER' "$mention_workflow")" = "quick,c0da" ]
   [ "$(yq -r '.jobs.detect.steps[] | select(.id == "detect") | .env.ALLOWED_ASSOCIATIONS' "$mention_workflow")" = "OWNER,MEMBER" ]
-  [ "$(yq -r '.jobs.detect.steps[] | select(.id == "detect") | .run' "$mention_workflow")" = "mise exec aqua:nushell/nushell@0.113.1 -- nu .github/scripts/agent-mention-detect.nu" ]
+  [ "$(yq -r '.jobs.detect.steps[] | select(.id == "detect") | .run' "$mention_workflow")" = "python3 .github/scripts/agent-mention-detect.py" ]
 }
 
 @test "workflows:generate --check covers mention workflow and detector script" {
@@ -234,18 +233,18 @@ assert_detector_case() {
     return 1
   }
 
-  printf 'legacy detector\n' > "$TARGET_REPO/.github/scripts/agent-mention-detect.py"
+  printf 'legacy detector\n' > "$TARGET_REPO/.github/scripts/agent-mention-detect.nu"
 
   run generate_workflows --check
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Unexpected: .github/scripts/agent-mention-detect.py (legacy mention detector"* ]]
+  [[ "$output" == *"Unexpected: .github/scripts/agent-mention-detect.nu (legacy Nushell mention detector"* ]]
 
-  rm "$TARGET_REPO/.github/scripts/agent-mention-detect.py"
-  printf '\n# drift\n' >> "$TARGET_REPO/.github/scripts/agent-mention-detect.nu"
+  rm "$TARGET_REPO/.github/scripts/agent-mention-detect.nu"
+  printf '\n# drift\n' >> "$TARGET_REPO/.github/scripts/agent-mention-detect.py"
 
   run generate_workflows --check
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Differs: .github/scripts/agent-mention-detect.nu"* ]]
+  [[ "$output" == *"Differs: .github/scripts/agent-mention-detect.py"* ]]
 }
 
 @test "workflows:generate removes stale mention files when mention_wakes is disabled" {
