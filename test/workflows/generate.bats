@@ -247,6 +247,79 @@ assert_detector_case() {
   [[ "$output" == *"Differs: .github/scripts/agent-mention-detect.py"* ]]
 }
 
+@test "workflows:generate quotes scheduled message and model as YAML scalars" {
+  make_target_repo
+
+  cat > "$TARGET_REPO/workflows.yaml" <<'EOF'
+workflows:
+  - name: weird-message
+    agent: quick
+    model: huggingface/moonshotai/Kimi-K2.6:novita
+    schedule:
+      - "0 15 * * *"
+    message: |
+      line one
+      permissions: write-all
+      jobs:
+        pwn:
+          runs-on: ubuntu-latest
+mention_wakes:
+  enabled: true
+  model: huggingface/moonshotai/Kimi-K2.6:novita
+EOF
+
+  run generate_workflows
+  [ "$status" -eq 0 ] || {
+    echo "$output" >&2
+    return 1
+  }
+
+  scheduled_workflow="$TARGET_REPO/.github/workflows/weird-message.yml"
+  mention_workflow="$TARGET_REPO/.github/workflows/agent-mention.yml"
+
+  [ "$(yq -r '.jobs.run.with.message' "$scheduled_workflow")" = $'line one\npermissions: write-all\njobs:\n  pwn:\n    runs-on: ubuntu-latest' ]
+  [ "$(yq -r '.jobs.run.with.model' "$scheduled_workflow")" = "huggingface/moonshotai/Kimi-K2.6:novita" ]
+  [ "$(yq -r '.jobs.run' "$scheduled_workflow")" != "null" ]
+  [ "$(yq -r '.jobs.pwn' "$scheduled_workflow")" = "null" ]
+  [ "$(yq -r '.permissions' "$scheduled_workflow")" = "null" ]
+  [ "$(yq -r '.jobs."wake-quick".with.model' "$mention_workflow")" = "huggingface/moonshotai/Kimi-K2.6:novita" ]
+}
+
+@test "workflows:generate rejects unsafe agent names and unknown scheduled agents" {
+  make_target_repo
+
+  cat > "$TARGET_REPO/.mise/tasks/agent/list" <<'EOF'
+#!/usr/bin/env bash
+printf 'quick\n'
+printf '../scripts/owned\n'
+EOF
+  chmod +x "$TARGET_REPO/.mise/tasks/agent/list"
+
+  run generate_workflows
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid agent name '../scripts/owned'"* ]]
+
+  cat > "$TARGET_REPO/.mise/tasks/agent/list" <<'EOF'
+#!/usr/bin/env bash
+printf 'quick\n'
+EOF
+  chmod +x "$TARGET_REPO/.mise/tasks/agent/list"
+
+  cat > "$TARGET_REPO/workflows.yaml" <<'EOF'
+workflows:
+  - name: daily-probe
+    agent: c0da
+    model: openai-codex/gpt-5.5
+    schedule:
+      - "0 15 * * *"
+    message: "Review the daily probe."
+EOF
+
+  run generate_workflows
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"workflow 'daily-probe' references agent 'c0da', but agent:list did not report that agent"* ]]
+}
+
 @test "workflows:generate removes stale mention files when mention_wakes is disabled" {
   make_target_repo
   generate_workflows

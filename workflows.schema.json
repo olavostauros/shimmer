@@ -90,7 +90,7 @@
     "provider_qualified_model": {
       "type": "string",
       "description": "Provider-qualified model to use (for example: openai-codex/gpt-5.5)",
-      "pattern": "^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "pattern": "^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:/-]*$",
       "examples": [
         "openai-codex/gpt-5.5",
         "github-copilot/gpt-5.5",

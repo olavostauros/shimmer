@@ -42,6 +42,44 @@ agent_output_name() {
   printf '%s' "$1" | tr '-' '_'
 }
 
+validate_agent_name() {
+  local agent="$1"
+
+  if [[ ! "$agent" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "Error: invalid agent name '$agent' from agent:list; expected ^[a-z0-9][a-z0-9-]*$" >&2
+    exit 1
+  fi
+
+  case "$agent" in
+    agent-run|agent-mention)
+      echo "Error: invalid agent name '$agent' from agent:list; name is reserved by generated workflows" >&2
+      exit 1
+      ;;
+  esac
+}
+
+agent_in_roster() {
+  local needle="$1"
+  local agent
+  while IFS= read -r agent; do
+    [[ -z "$agent" ]] && continue
+    [[ "$agent" == "$needle" ]] && return 0
+  done <<< "$AGENTS"
+  return 1
+}
+
+yaml_scalar_from_file() {
+  local value_file="$1"
+
+  python3 - "$value_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+print(json.dumps(Path(sys.argv[1]).read_text(encoding="utf-8")))
+PY
+}
+
 csv_from_lines() {
   awk 'NF { printf "%s%s", sep, $0; sep="," } END { print "" }'
 }
@@ -161,7 +199,8 @@ WORKFLOW_EOF
 
 generate_scheduled_workflow() {
   local index="$1"
-  local name agent message model schedule_count schedule_entries schedule_tmp message_tmp output_file cron
+  local name agent message model schedule_count schedule_entries schedule_tmp message_tmp model_tmp output_file cron
+  local message_yaml model_yaml
 
   name=$(yq -r ".workflows[$index].name" workflows.yaml)
   agent=$(yq -r ".workflows[$index].agent" workflows.yaml)
@@ -169,6 +208,11 @@ generate_scheduled_workflow() {
   model=$(yq -r ".workflows[$index].model" workflows.yaml)
   if [[ -z "$model" || "$model" == "null" ]]; then
     echo "Error: workflow '$name' is missing required model" >&2
+    exit 1
+  fi
+  validate_agent_name "$agent"
+  if ! agent_in_roster "$agent"; then
+    echo "Error: workflow '$name' references agent '$agent', but agent:list did not report that agent" >&2
     exit 1
   fi
 
@@ -180,16 +224,26 @@ generate_scheduled_workflow() {
   done
 
   output_file="$OUTPUT_DIR/${name}.yml"
-  export NAME="$name" AGENT="$agent" MODEL="$model"
+  export NAME="$name" AGENT="$agent"
 
   # shellcheck disable=SC2016  # envsubst's allow-list argument: literal ${VAR} tokens are the contract.
-  envsubst '${NAME} ${AGENT} ${MODEL}' < "$SCHEDULED_TEMPLATE" > "$output_file"
+  envsubst '${NAME} ${AGENT}' < "$SCHEDULED_TEMPLATE" > "$output_file"
 
   message_tmp=$(mktemp)
   printf '%s' "$message" > "$message_tmp"
+  message_yaml=$(yaml_scalar_from_file "$message_tmp")
+  printf '%s' "$message_yaml" > "$message_tmp"
   # shellcheck disable=SC2016  # Replace the literal ${MESSAGE} placeholder after envsubst.
   replace_file_token_from_file "$output_file" '${MESSAGE}' "$message_tmp"
   rm "$message_tmp"
+
+  model_tmp=$(mktemp)
+  printf '%s' "$model" > "$model_tmp"
+  model_yaml=$(yaml_scalar_from_file "$model_tmp")
+  printf '%s' "$model_yaml" > "$model_tmp"
+  # shellcheck disable=SC2016  # Replace the literal ${MODEL} placeholder after envsubst.
+  replace_file_token_from_file "$output_file" '${MODEL}' "$model_tmp"
+  rm "$model_tmp"
 
   schedule_tmp=$(mktemp)
   printf '%s' "$schedule_entries" > "$schedule_tmp"
@@ -203,6 +257,12 @@ generate_mention_workflow() {
   local model="$3"
   local allowed_associations="$4"
   local output_file="$OUTPUT_DIR/agent-mention.yml"
+  local model_tmp model_yaml
+
+  model_tmp=$(mktemp)
+  printf '%s' "$model" > "$model_tmp"
+  model_yaml=$(yaml_scalar_from_file "$model_tmp")
+  rm "$model_tmp"
 
   mkdir -p "$SCRIPT_DIR"
   rm -f "$SCRIPT_DIR/agent-mention-detect.nu"
@@ -290,7 +350,7 @@ WORKFLOW_EOF
     uses: ./.github/workflows/${agent}.yml
     with:
       message: \${{ needs.detect.outputs.message }}
-      model: ${model}
+      model: ${model_yaml}
     secrets: inherit
 WORKFLOW_EOF
   done <<< "$agents"
@@ -324,6 +384,7 @@ if [[ -n "$AGENTS" ]]; then
   AGENT_COUNT=0
   while IFS= read -r agent; do
     [[ -z "$agent" ]] && continue
+    validate_agent_name "$agent"
     generate_agent_workflow "$agent"
     echo "Generated: ${agent}.yml"
     AGENT_COUNT=$((AGENT_COUNT + 1))
